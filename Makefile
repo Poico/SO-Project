@@ -1,10 +1,17 @@
 CC = gcc
 CFLAGS = -g -Wall -std=c17
-TARGETS = Proj1
+TARGET=build/Proj1
 
-.PHONY: all clean
+.PHONY: all run clean
 
-all: $(TARGETS)
+all: $(TARGET)
+
+run: $(TARGET)
+	./$(TARGET)
+
+$(TARGET): Proj1.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) $^ -o $@
 
 clean:
-	rm -f *.o $(TARGETS)
+	$(RM) -r build
