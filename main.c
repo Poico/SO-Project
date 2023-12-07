@@ -79,7 +79,6 @@ int main(int argc, char *argv[]) {
 
 void handleFile(int input_no, int output_no)
 {
-  printf("Handling file %d.\n", input_no);
   while (1)
   {
     unsigned int event_id, delay;

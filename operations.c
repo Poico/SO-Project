@@ -174,19 +174,16 @@ int ems_show(unsigned int event_id, int file_no) {
   }
 
   for (size_t i = 1; i <= event->rows; i++) {
-    char lineBuff[MAX_RESERVATION_SIZE << 4] = { 0 }; //FIXME: Better size?
     for (size_t j = 1; j <= event->cols; j++) {
       unsigned int* seat = get_seat_with_delay(event, seat_index(event, i, j));
-      sprintf(lineBuff, "%u", *seat);
+      dprintf(file_no, "%u", *seat);
 
       if (j < event->cols) {
-        sprintf(lineBuff, " ");
+        dprintf(file_no, " ");
       }
     }
 
-    sprintf(lineBuff, "\n");
-    printf("Writing '%s'.\n", lineBuff);
-    write(file_no, lineBuff, strlen(lineBuff));
+    dprintf(file_no, "\n");
   }
 
   return 0;
@@ -203,17 +200,13 @@ int ems_list_events(int file_no) {
     return 0;
   }
 
-  char listBuff[1024 << 4]; //FIXME: Better size?
-
   struct ListNode* current = event_list->head;
   while (current != NULL) {
-    sprintf(listBuff, "Event: ");
-    sprintf(listBuff, "%u\n", (current->event)->id);
+    dprintf(file_no, "Event: ");
+    dprintf(file_no, "%u\n", (current->event)->id);
     current = current->next;
     //TODO: Check buffer fill level, flush if above threshold
   }
-
-  write(file_no, listBuff, strlen(listBuff));
 
   return 0;
 }
