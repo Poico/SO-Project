@@ -1,8 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <unistd.h>
+#include <string.h>
 
 #include "eventlist.h"
+#include "constants.h"
 
 static struct EventList* event_list = NULL;
 static unsigned int state_access_delay_ms = 0;
@@ -156,7 +159,8 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t* xs, size_t* ys)
   return 0;
 }
 
-int ems_show(unsigned int event_id) {
+int ems_show(unsigned int event_id, int file_no) {
+  printf("SHOW\n");
   if (event_list == NULL) {
     fprintf(stderr, "EMS state must be initialized\n");
     return 1;
@@ -170,22 +174,25 @@ int ems_show(unsigned int event_id) {
   }
 
   for (size_t i = 1; i <= event->rows; i++) {
+    char lineBuff[MAX_RESERVATION_SIZE << 4] = { 0 }; //FIXME: Better size?
     for (size_t j = 1; j <= event->cols; j++) {
       unsigned int* seat = get_seat_with_delay(event, seat_index(event, i, j));
-      printf("%u", *seat);
+      sprintf(lineBuff, "%u", *seat);
 
       if (j < event->cols) {
-        printf(" ");
+        sprintf(lineBuff, " ");
       }
     }
 
-    printf("\n");
+    sprintf(lineBuff, "\n");
+    printf("Writing '%s'.\n", lineBuff);
+    write(file_no, lineBuff, strlen(lineBuff));
   }
 
   return 0;
 }
 
-int ems_list_events() {
+int ems_list_events(int file_no) {
   if (event_list == NULL) {
     fprintf(stderr, "EMS state must be initialized\n");
     return 1;
@@ -196,12 +203,17 @@ int ems_list_events() {
     return 0;
   }
 
+  char listBuff[1024 << 4]; //FIXME: Better size?
+
   struct ListNode* current = event_list->head;
   while (current != NULL) {
-    printf("Event: ");
-    printf("%u\n", (current->event)->id);
+    sprintf(listBuff, "Event: ");
+    sprintf(listBuff, "%u\n", (current->event)->id);
     current = current->next;
+    //TODO: Check buffer fill level, flush if above threshold
   }
+
+  write(file_no, listBuff, strlen(listBuff));
 
   return 0;
 }

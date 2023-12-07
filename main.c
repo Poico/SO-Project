@@ -10,6 +10,7 @@
 #include "constants.h"
 #include "operations.h"
 #include "parser.h"
+#include "auxiliar.h"
 
 void handleFile(int input_no, int output_no);
 
@@ -47,16 +48,25 @@ int main(int argc, char *argv[]) {
 
   while ((dirent = readdir(dir)) != NULL)
   {
+    //Could be done later
+    char relativePath[1024]; //FIXME: Better size?
+    strcpy(relativePath, dirPath);
+    pathCombine(relativePath, dirent->d_name);
+
     //check extension
-    char *ext = strstr(dirent->d_name, ".jobs");
-    if (ext != &dirent->d_name[strlen(dirent->d_name) - 5])
+    char *ext = strstr(relativePath, ".jobs");
+    if (ext != &relativePath[strlen(relativePath) - 5])
       continue;
 
-    printf("Handling file %s.\n", dirent->d_name);
+    int input_no = open(relativePath, O_RDONLY);
 
-    int input_no = open(dirent->d_name, O_RDONLY);
+    if (input_no == -1)
+    {
+      //TODO: Handle error
+    }
+
     strcpy(ext, ".out");
-    int output_no = open(dirent->d_name, O_WRONLY | O_CREAT | O_TRUNC);
+    int output_no = open(relativePath, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
     handleFile(input_no, output_no);
     close(input_no);
     close(output_no);
@@ -69,14 +79,12 @@ int main(int argc, char *argv[]) {
 
 void handleFile(int input_no, int output_no)
 {
+  printf("Handling file %d.\n", input_no);
   while (1)
   {
     unsigned int event_id, delay;
     size_t num_rows, num_columns, num_coords;
     size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
-
-    //printf("> ");
-    //fflush(stdout);
 
     switch (get_next(input_no)) {
       case CMD_CREATE:
@@ -111,14 +119,14 @@ void handleFile(int input_no, int output_no)
           continue;
         }
 
-        if (ems_show(event_id)) {
+        if (ems_show(event_id, output_no)) {
           fprintf(stderr, "Failed to show event\n");
         }
 
         break;
 
       case CMD_LIST_EVENTS:
-        if (ems_list_events()) {
+        if (ems_list_events(output_no)) {
           fprintf(stderr, "Failed to list events\n");
         }
 
