@@ -22,6 +22,18 @@ int main(int argc, char *argv[])
   unsigned int max_proc = MAX_PROC;
   char *dirPath;
 
+  if(argc > 4){
+    char *endptr;
+    unsigned long int max_threads = strtoul(argv[3], &endptr, 10);
+
+    if (*endptr != '\0' || max_threads > UINT_MAX)
+    {
+      fprintf(stderr, "Invalid maximum threads count value or value too large\n");
+      return FAILURE;
+    }
+
+    max_threads = (unsigned int)max_threads;
+  }
   if (argc > 3)
   {
     char *endptr;
