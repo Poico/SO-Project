@@ -1,4 +1,5 @@
 #define MAX_RESERVATION_SIZE 256
 #define STATE_ACCESS_DELAY_MS 10
+#define MAX_PROC 4
 #define SUCESS 0
 #define FAILURE 1

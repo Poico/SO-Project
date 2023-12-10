@@ -1,0 +1,2 @@
+Ordem dos argumentos no input?
+stdint.h (I hate unsigned int, lemme use uint32_t, portable while preserving bitwidth)
