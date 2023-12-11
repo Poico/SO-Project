@@ -13,57 +13,17 @@
 #include "parser.h"
 #include "auxiliar.h"
 
+void process_args(int argc, char *argv[]);
 void handleFile(int input_no, int output_no);
 int processFile(struct dirent *dirent, char *dirPath);
 
+unsigned int state_access_delay_ms = STATE_ACCESS_DELAY_MS;
+unsigned int max_proc = MAX_PROC, max_thread = MAX_THREADS;
+char *glob_dirPath;
+
 int main(int argc, char *argv[])
 {
-  unsigned int state_access_delay_ms = STATE_ACCESS_DELAY_MS;
-  unsigned int max_proc = MAX_PROC;
-  char *dirPath;
-
-  if(argc > 4){
-    char *endptr;
-    unsigned long int max_threads = strtoul(argv[3], &endptr, 10);
-
-    if (*endptr != '\0' || max_threads > UINT_MAX)
-    {
-      fprintf(stderr, "Invalid maximum threads count value or value too large\n");
-      return FAILURE;
-    }
-
-    max_threads = (unsigned int)max_threads;
-  }
-  if (argc > 3)
-  {
-    char *endptr;
-    unsigned long int proc_count = strtoul(argv[3], &endptr, 10);
-
-    if (*endptr != '\0' || proc_count > UINT_MAX)
-    {
-      fprintf(stderr, "Invalid maximum process count value or value too large\n");
-      return FAILURE;
-    }
-
-    max_proc = (unsigned int)proc_count;
-  }
-  if (argc > 2)
-  { // will always happen
-    dirPath = argv[2];
-  }
-  if (argc > 1)
-  {
-    char *endptr;
-    unsigned long int delay = strtoul(argv[1], &endptr, 10);
-
-    if (*endptr != '\0' || delay > UINT_MAX)
-    {
-      fprintf(stderr, "Invalid delay value or value too large\n");
-      return FAILURE;
-    }
-
-    state_access_delay_ms = (unsigned int)delay;
-  }
+  process_args(argc, argv);
 
   if (ems_init(state_access_delay_ms))
   {
@@ -72,12 +32,13 @@ int main(int argc, char *argv[])
   }
 
   // Fetch file list
-  DIR *dir = opendir(dirPath);
+  DIR *dir = opendir(glob_dirPath);
   struct dirent *dirent;
 
   if (!dir)
   {
     fprintf(stderr, "Failed to open provided job directory\n");
+    exit(EXIT_FAILURE);
   }
 
   unsigned int processCount = 0;
@@ -93,12 +54,9 @@ int main(int argc, char *argv[])
     else if (pid == 0)
     {
       // Child process
-      verify = processFile(dirent, dirPath);
+      verify = processFile(dirent, glob_dirPath);
       if (verify == FAILURE)
-      {
         exit(EXIT_FAILURE);
-        continue;
-      }
       else if (verify == SUCESS)
         exit(EXIT_SUCCESS);
     }
@@ -115,9 +73,62 @@ int main(int argc, char *argv[])
     }
   }
 
+  //Wait for all processes
+  while (processCount)
+  {
+    wait(NULL);
+    processCount--;
+  }
+
   ems_terminate();
   closedir(dir);
   return 0;
+}
+
+void process_args(int argc, char *argv[])
+{
+  if(argc > 4){
+    char *endptr;
+    unsigned long int max_threads = strtoul(argv[3], &endptr, 10);
+
+    if (*endptr != '\0' || max_threads > UINT_MAX)
+    {
+      fprintf(stderr, "Invalid maximum threads count value or value too large\n");
+      exit(EXIT_FAILURE);
+    }
+
+    max_thread = (unsigned int)max_threads;
+  }
+  if (argc > 3)
+  {
+    char *endptr;
+    unsigned long int proc_count = strtoul(argv[3], &endptr, 10);
+
+    if (*endptr != '\0' || proc_count > UINT_MAX)
+    {
+      fprintf(stderr, "Invalid maximum process count value or value too large\n");
+      exit(EXIT_FAILURE);
+    }
+
+    max_proc = (unsigned int)proc_count;
+  }
+  if (argc > 2)
+  { // will always happen
+    glob_dirPath = argv[2];
+  }
+  if (argc > 1)
+  {
+    char *endptr;
+    unsigned long int delay = strtoul(argv[1], &endptr, 10);
+
+    if (*endptr != '\0' || delay > UINT_MAX)
+    {
+      fprintf(stderr, "Invalid delay value or value too large\n");
+      exit(EXIT_FAILURE);
+    }
+
+    state_access_delay_ms = (unsigned int)delay;
+  }
 }
 
 int processFile(struct dirent *dirent, char *dirPath)
