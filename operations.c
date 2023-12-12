@@ -14,7 +14,7 @@
 
 static struct EventList *event_list = NULL;
 static unsigned int state_access_delay_ms = 0;
-
+int write_to_file(int fileDescriptor, char *buffer);
 /// Calculates a timespec from a delay in milliseconds.
 /// @param delay_ms Delay in milliseconds.
 /// @return Timespec with the given delay.
@@ -247,7 +247,6 @@ int ems_list_events(int file_no)
     sprintf(buffer, "%u\n", (current->event)->id);
     write_to_file(file_no, buffer); //TODO: end this part
     current = current->next;
-    // TODO: Check buffer fill level, flush if above threshold
   }
 
   return 0;
