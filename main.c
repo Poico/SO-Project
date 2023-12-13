@@ -14,7 +14,7 @@
 #include "auxiliar.h"
 
 void process_args(int argc, char *argv[]);
-unsigned int launch_processes(DIR* dir);
+unsigned int launch_processes(DIR *dir);
 int child_main(struct dirent *dirent);
 int process_file(struct dirent *dirent);
 void handle_file(int input_no, int output_no);
@@ -23,13 +23,22 @@ int handle_command(enum Command cmd, int input_no, int output_no);
 unsigned int state_access_delay_ms = STATE_ACCESS_DELAY_MS;
 unsigned int max_proc = MAX_PROC, max_thread = MAX_THREADS;
 char *glob_dirPath;
-pthread_barrier_t barrier;
+
+struct thread_info
+{
+  pthread_t id;
+  int input_no, output_no;
+} *thread_infos;
+int used_threads = 0;
+
+//struct thread_info ;
 
 int main(int argc, char *argv[])
 {
   process_args(argc, argv);
 
-  if(pthread_barrier_init(&barrier, NULL, max_thread)){
+  if (pthread_barrier_init(&barrier, NULL, max_thread))
+  {
     fprintf(stderr, "Failed to initialize barrier\n");
     return FAILURE;
   }
@@ -51,7 +60,7 @@ int main(int argc, char *argv[])
 
   unsigned int processCount = launch_processes(dir);
 
-  //Wait for all processes
+  // Wait for all processes
   while (processCount)
   {
     wait(NULL);
@@ -78,7 +87,8 @@ void process_args(int argc, char *argv[])
 
     state_access_delay_ms = (unsigned int)delay;
   }
-  if(argc > 2){
+  if (argc > 2)
+  {
     char *endptr;
     unsigned long int max_threads = strtoul(argv[2], &endptr, 10);
 
@@ -105,7 +115,7 @@ void process_args(int argc, char *argv[])
   }
 }
 
-unsigned int launch_processes(DIR* dir)
+unsigned int launch_processes(DIR *dir)
 {
   unsigned int processCount;
   struct dirent *dirent;
@@ -116,7 +126,7 @@ unsigned int launch_processes(DIR* dir)
     if (pid < 0)
     {
       fprintf(stderr, "Fork failed.\n");
-      //TODO: Crash or error
+      // TODO: Crash or error
     }
     else if (pid == 0)
     {
@@ -170,6 +180,7 @@ int process_file(struct dirent *dirent)
 
   strcpy(ext, ".out");
   int output_no = open(relativePath, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+  
   handle_file(input_no, output_no);
   close(input_no);
   close(output_no);
@@ -179,24 +190,46 @@ int process_file(struct dirent *dirent)
 
 void handle_file(int input_no, int output_no)
 {
+  char ch;
+  int line_count = 0;
+  while(read(input_no, &ch, 1) != 0){
+    if(ch == '\n'){
+      line_count++;
+    }
+  }
+  lseek(input_no, 0, SEEK_SET); // Reset file descriptor to the start
+  
+  
+  
+  //Alloc pids and whatnot
+  used_threads = line_count > max_thread ? max_thread : line_count;
+  thread_infos = malloc(used_threads * sizeof(pthread_t));
+
+  //duplicate input_no with dup
+  for (int i = 0; i < used_threads; i++)
+  {
+    thread_infos[i].input_no = dup(input_no);
+    thread_infos[i].output_no = dup(output_no);
+    //Launch threads
+    if (pthread_create(&thread_infos[i].id, NULL, thread_main, &thread_infos[i]))
+    {
+      fprintf(stderr, "Failed to create thread\n");
+      exit(EXIT_FAILURE);
+    }
+  }
+  
+
+  
+
+  // Para dar launchs ás threads como qrs q faça?
+
+
   while (1)
   {
     enum Command cmd = get_next(input_no);
 
-    if (cmd == CMD_BARRIER)
-    {
-      //Send exit signal to all threads
-    }
-    else if (cmd == CMD_WAIT)
-    {
-      //If global wait, must send some signal to all threads
-      //If not, can send to corresponding thread
-    }
-    else
-    {
       if (handle_command(cmd, input_no, output_no))
         break;
-    }
   }
 }
 
@@ -252,15 +285,6 @@ int handle_command(enum Command cmd, int input_no, int output_no)
 
     break;
 
-    case CMD_WAIT:
-      if (parse_wait(input_no, &delay, NULL) == -1)
-      { 
-        fprintf(stderr, "Invalid command. See HELP for usage\n");
-        continue;
-      }
-
-    break;
-
   case CMD_WAIT:
     if (parse_wait(input_no, &delay, NULL) == -1)
     { // thread_id is not implemented
@@ -294,11 +318,12 @@ int handle_command(enum Command cmd, int input_no, int output_no)
     break;
 
   case CMD_BARRIER: // Handled separately
+    //TODO: Continue implementation
+    break;
   case CMD_EMPTY:
     break;
 
   case EOC:
-    // TODO: Write events to output file
     return 1;
   }
 

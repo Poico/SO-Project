@@ -270,6 +270,7 @@ void ems_wait(unsigned int delay_ms, unsigned int thread_id)
   if(thread_id == 0){
     thread_id = pthread_self();
   }
+  //TODO: Unfuck Me 
   struct timespec delay = delay_to_timespec(delay_ms);
   nanosleep(&delay, thread_id);
 }
