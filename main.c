@@ -20,10 +20,16 @@ int processFile(struct dirent *dirent, char *dirPath);
 unsigned int state_access_delay_ms = STATE_ACCESS_DELAY_MS;
 unsigned int max_proc = MAX_PROC, max_thread = MAX_THREADS;
 char *glob_dirPath;
+pthread_barrier_t barrier;
 
 int main(int argc, char *argv[])
 {
   process_args(argc, argv);
+
+  if(pthread_barrier_init(&barrier, NULL, max_thread)){
+    fprintf(stderr, "Failed to initialize barrier\n");
+    return FAILURE;
+  }
 
   if (ems_init(state_access_delay_ms))
   {
@@ -157,6 +163,7 @@ int processFile(struct dirent *dirent, char *dirPath)
   handleFile(input_no, output_no);
   close(input_no);
   close(output_no);
+  pthread_barrier_destroy(&barrier);
   return SUCESS;
 }
 
@@ -224,7 +231,7 @@ void handleFile(int input_no, int output_no)
 
     case CMD_WAIT:
       if (parse_wait(input_no, &delay, NULL) == -1)
-      { // thread_id is not implemented
+      { 
         fprintf(stderr, "Invalid command. See HELP for usage\n");
         continue;
       }
