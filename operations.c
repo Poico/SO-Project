@@ -244,7 +244,6 @@ int ems_list_events(int file_no)
   {
     char buffer[1024];
     write_to_file(file_no, "Event: ");
-    write_to_file(file_no, "\n");
     sprintf(buffer, "%u\n", (current->event)->id);
     write_to_file(file_no, buffer); //TODO: end this part
     current = current->next;

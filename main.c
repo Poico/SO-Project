@@ -14,8 +14,11 @@
 #include "auxiliar.h"
 
 void process_args(int argc, char *argv[]);
-void handleFile(int input_no, int output_no);
-int processFile(struct dirent *dirent, char *dirPath);
+unsigned int launch_processes(DIR* dir);
+int child_main(struct dirent *dirent);
+int process_file(struct dirent *dirent);
+void handle_file(int input_no, int output_no);
+int handle_command(enum Command cmd, int input_no, int output_no);
 
 unsigned int state_access_delay_ms = STATE_ACCESS_DELAY_MS;
 unsigned int max_proc = MAX_PROC, max_thread = MAX_THREADS;
@@ -38,46 +41,15 @@ int main(int argc, char *argv[])
   }
 
   // Fetch file list
-  DIR *dir = opendir(glob_dirPath);
-  struct dirent *dirent;
+  DIR *dir = opendir("jobs");
 
   if (!dir)
   {
-    fprintf(stderr, "Failed to open provided job directory\n");
+    fprintf(stderr, "Failed to open job directory\n");
     exit(EXIT_FAILURE);
   }
 
-  unsigned int processCount = 0;
-  int verify;
-  while ((dirent = readdir(dir)) != NULL)
-  {
-    pid_t pid = fork();
-    if (pid < 0)
-    {
-      fprintf(stderr, "Fork failed.\n");
-      //TODO: Crash or error
-    }
-    else if (pid == 0)
-    {
-      // Child process
-      verify = processFile(dirent, glob_dirPath);
-      if (verify == FAILURE)
-        exit(EXIT_FAILURE);
-      else if (verify == SUCESS)
-        exit(EXIT_SUCCESS);
-    }
-    else
-    {
-      // Parent process
-      processCount++;
-      if (processCount >= max_proc)
-      {
-        // Wait for a child process to finish before forking another
-        wait(NULL);
-        processCount--;
-      }
-    }
-  }
+  unsigned int processCount = launch_processes(dir);
 
   //Wait for all processes
   while (processCount)
@@ -93,39 +65,10 @@ int main(int argc, char *argv[])
 
 void process_args(int argc, char *argv[])
 {
-  if(argc > 4){
-    char *endptr;
-    unsigned long int max_threads = strtoul(argv[3], &endptr, 10);
-
-    if (*endptr != '\0' || max_threads > UINT_MAX)
-    {
-      fprintf(stderr, "Invalid maximum threads count value or value too large\n");
-      exit(EXIT_FAILURE);
-    }
-
-    max_thread = (unsigned int)max_threads;
-  }
   if (argc > 3)
   {
     char *endptr;
-    unsigned long int proc_count = strtoul(argv[3], &endptr, 10);
-
-    if (*endptr != '\0' || proc_count > UINT_MAX)
-    {
-      fprintf(stderr, "Invalid maximum process count value or value too large\n");
-      exit(EXIT_FAILURE);
-    }
-
-    max_proc = (unsigned int)proc_count;
-  }
-  if (argc > 2)
-  { // will always happen
-    glob_dirPath = argv[2];
-  }
-  if (argc > 1)
-  {
-    char *endptr;
-    unsigned long int delay = strtoul(argv[1], &endptr, 10);
+    unsigned long int delay = strtoul(argv[3], &endptr, 10);
 
     if (*endptr != '\0' || delay > UINT_MAX)
     {
@@ -135,13 +78,80 @@ void process_args(int argc, char *argv[])
 
     state_access_delay_ms = (unsigned int)delay;
   }
+  if(argc > 2){
+    char *endptr;
+    unsigned long int max_threads = strtoul(argv[2], &endptr, 10);
+
+    if (*endptr != '\0' || max_threads > UINT_MAX)
+    {
+      fprintf(stderr, "Invalid maximum threads count value or value too large\n");
+      exit(EXIT_FAILURE);
+    }
+
+    max_thread = (unsigned int)max_threads;
+  }
+  if (argc > 1)
+  {
+    char *endptr;
+    unsigned long int proc_count = strtoul(argv[1], &endptr, 10);
+
+    if (*endptr != '\0' || proc_count > UINT_MAX)
+    {
+      fprintf(stderr, "Invalid maximum process count value or value too large\n");
+      exit(EXIT_FAILURE);
+    }
+
+    max_proc = (unsigned int)proc_count;
+  }
 }
 
-int processFile(struct dirent *dirent, char *dirPath)
+unsigned int launch_processes(DIR* dir)
+{
+  unsigned int processCount;
+  struct dirent *dirent;
+
+  while ((dirent = readdir(dir)) != NULL)
+  {
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+      fprintf(stderr, "Fork failed.\n");
+      //TODO: Crash or error
+    }
+    else if (pid == 0)
+    {
+      int exitCode = child_main(dirent);
+      exit(exitCode);
+    }
+    else
+    {
+      // Parent process
+      processCount++;
+      if (processCount >= max_proc)
+      {
+        // Wait for a child process to finish before forking another
+        wait(NULL);
+        processCount--;
+      }
+    }
+  }
+
+  return processCount;
+}
+
+int child_main(struct dirent *dirent)
+{
+  int verify = process_file(dirent);
+  if (verify == SUCESS)
+    return EXIT_SUCCESS;
+  return EXIT_FAILURE;
+}
+
+int process_file(struct dirent *dirent)
 {
   // Could be done later
   char relativePath[1024]; // FIXME: Better size?
-  strcpy(relativePath, dirPath);
+  strcpy(relativePath, "jobs");
   pathCombine(relativePath, dirent->d_name);
 
   // check extension
@@ -160,74 +170,87 @@ int processFile(struct dirent *dirent, char *dirPath)
 
   strcpy(ext, ".out");
   int output_no = open(relativePath, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
-  handleFile(input_no, output_no);
+  handle_file(input_no, output_no);
   close(input_no);
   close(output_no);
   pthread_barrier_destroy(&barrier);
   return SUCESS;
 }
 
-void handleFile(int input_no, int output_no)
+void handle_file(int input_no, int output_no)
 {
   while (1)
   {
-    unsigned int event_id, delay;
-    size_t num_rows, num_columns, num_coords;
-    size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
+    enum Command cmd = get_next(input_no);
 
-    switch (get_next(input_no))
+    if (cmd == CMD_BARRIER)
     {
-    case CMD_CREATE:
-      if (parse_create(input_no, &event_id, &num_rows, &num_columns) != 0)
-      {
-        fprintf(stderr, "Invalid command. See HELP for usage\n");
-        continue;
-      }
+      //Send exit signal to all threads
+    }
+    else if (cmd == CMD_WAIT)
+    {
+      //If global wait, must send some signal to all threads
+      //If not, can send to corresponding thread
+    }
+    else
+    {
+      if (handle_command(cmd, input_no, output_no))
+        break;
+    }
+  }
+}
 
-      if (ems_create(event_id, num_rows, num_columns))
-      {
-        fprintf(stderr, "Failed to create event\n");
-      }
+int handle_command(enum Command cmd, int input_no, int output_no)
+{
+  unsigned int event_id, delay;
+  size_t num_rows, num_columns, num_coords;
+  size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
 
+  switch (cmd)
+  {
+  case CMD_CREATE:
+    if (parse_create(input_no, &event_id, &num_rows, &num_columns) != 0)
+    {
+      fprintf(stderr, "Invalid command. See HELP for usage\n");
       break;
+    }
 
-    case CMD_RESERVE:
-      num_coords = parse_reserve(input_no, MAX_RESERVATION_SIZE, &event_id, xs, ys);
+    if (ems_create(event_id, num_rows, num_columns))
+    {
+      fprintf(stderr, "Failed to create event\n");
+    }
 
-      if (num_coords == 0)
-      {
-        fprintf(stderr, "Invalid command. See HELP for usage\n");
-        continue;
-      }
+    break;
 
-      if (ems_reserve(event_id, num_coords, xs, ys))
-      {
-        fprintf(stderr, "Failed to reserve seats\n");
-      }
+  case CMD_RESERVE:
+    num_coords = parse_reserve(input_no, MAX_RESERVATION_SIZE, &event_id, xs, ys);
 
+    if (num_coords == 0)
+    {
+      fprintf(stderr, "Invalid command. See HELP for usage\n");
       break;
+    }
 
-    case CMD_SHOW:
-      if (parse_show(input_no, &event_id) != 0)
-      {
-        fprintf(stderr, "Invalid command. See HELP for usage\n");
-        continue;
-      }
+    if (ems_reserve(event_id, num_coords, xs, ys))
+    {
+      fprintf(stderr, "Failed to reserve seats\n");
+    }
 
-      if (ems_show(event_id, output_no))
-      {
-        fprintf(stderr, "Failed to show event\n");
-      }
+    break;
 
+  case CMD_SHOW:
+    if (parse_show(input_no, &event_id) != 0)
+    {
+      fprintf(stderr, "Invalid command. See HELP for usage\n");
       break;
+    }
 
-    case CMD_LIST_EVENTS:
-      if (ems_list_events(output_no))
-      {
-        fprintf(stderr, "Failed to list events\n");
-      }
+    if (ems_show(event_id, output_no))
+    {
+      fprintf(stderr, "Failed to show event\n");
+    }
 
-      break;
+    break;
 
     case CMD_WAIT:
       if (parse_wait(input_no, &delay, NULL) == -1)
@@ -236,39 +259,48 @@ void handleFile(int input_no, int output_no)
         continue;
       }
 
-      if (delay > 0)
-      {
-        printf("Waiting...\n");
-        ems_wait(delay);
-      }
+    break;
 
-      break;
-
-    case CMD_INVALID:
+  case CMD_WAIT:
+    if (parse_wait(input_no, &delay, NULL) == -1)
+    { // thread_id is not implemented
       fprintf(stderr, "Invalid command. See HELP for usage\n");
       break;
-
-    case CMD_HELP:
-      printf(
-          "Available commands:\n"
-          "  CREATE <event_id> <num_rows> <num_columns>\n"
-          "  RESERVE <event_id> [(<x1>,<y1>) (<x2>,<y2>) ...]\n"
-          "  SHOW <event_id>\n"
-          "  LIST\n"
-          "  WAIT <delay_ms> [thread_id]\n" // thread_id is not implemented
-          "  BARRIER\n"                     // Not implemented
-          "  HELP\n");
-
-      break;
-
-    case CMD_BARRIER: // Not implemented
-    case CMD_EMPTY:
-      break;
-
-    case EOC:
-      // ems_terminate();
-      // TODO: Write events to output file
-      return;
     }
+
+    if (delay > 0)
+    {
+      printf("Waiting...\n");
+      ems_wait(delay);
+    }
+
+    break;
+
+  case CMD_INVALID:
+    fprintf(stderr, "Invalid command. See HELP for usage\n");
+    break;
+
+  case CMD_HELP:
+    printf(
+        "Available commands:\n"
+        "  CREATE <event_id> <num_rows> <num_columns>\n"
+        "  RESERVE <event_id> [(<x1>,<y1>) (<x2>,<y2>) ...]\n"
+        "  SHOW <event_id>\n"
+        "  LIST\n"
+        "  WAIT <delay_ms> [thread_id]\n" // thread_id is not implemented
+        "  BARRIER\n"                     // Handled separately
+        "  HELP\n");
+
+    break;
+
+  case CMD_BARRIER: // Handled separately
+  case CMD_EMPTY:
+    break;
+
+  case EOC:
+    // TODO: Write events to output file
+    return 1;
   }
+
+  return 0;
 }
