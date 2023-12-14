@@ -109,7 +109,7 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols)
   event->rows = num_rows;
   event->cols = num_cols;
   event->reservations = 0;
-  pthread_attr_init(&event->lock);
+  pthread_mutex_init(&event->lock, NULL);
   event->data = malloc(num_rows * num_cols * sizeof(unsigned int));
 
   if (event->data == NULL)
