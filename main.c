@@ -18,9 +18,10 @@ struct thread_info
 {
   unsigned int index;
   pthread_t id;
-  int input_no, output_no;
+  char path[512];
   unsigned int line;
   pthread_mutex_t line_lock;
+
 } *thread_infos;
 unsigned int used_threads = 0;
 
@@ -28,8 +29,10 @@ void process_args(int argc, char *argv[]);
 unsigned int launch_processes(DIR *dir);
 int child_main(struct dirent *dirent);
 int process_file(struct dirent *dirent);
-void handle_file(int input_no, int output_no);
-int handle_command(enum Command cmd, struct thread_info *my_info);
+void handle_file(char* relativePath);
+int handle_command(enum Command cmd, struct thread_info *my_info,int input_no);
+int out_num;
+
 void lockAll();
 void unlockAll();
 void *thread_main(void *argument);
@@ -176,34 +179,22 @@ int process_file(struct dirent *dirent)
 
   //DBG
   printf("Opening file '%s'.\n", relativePath);
-
-  int input_no = open(relativePath, O_RDONLY);
-
-  if (input_no == -1)
-    exit(EXIT_FAILURE);
-
+  char relativePathCopy[1024];
+  strcpy(relativePathCopy, relativePath);
   strcpy(ext, ".out");
-  int output_no = open(relativePath, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+  out_num = open(relativePath, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
 
-  handle_file(input_no, output_no);
+  handle_file(relativePathCopy);
   free(thread_infos);
-  close(input_no);
-  close(output_no);
+  close(out_num);
   return SUCESS;
 }
 
-void handle_file(int input_no, int output_no)
+void handle_file(char* relativePath)
 {
-  char ch;
-  unsigned int line_count = 0;
-  while (read(input_no, &ch, 1) != 0)
-  {
-    if (ch == '\n')
-      line_count++;
-  }
-  lseek(input_no, 0, SEEK_SET); // Reset file descriptor to the start
-
-  used_threads = line_count > max_thread ? max_thread : line_count; //TODO: Verify this
+  //DBG
+  printf("At %s.\n", relativePath);
+  used_threads= max_thread; //TODO: FIX THIS
   thread_infos = malloc(used_threads * sizeof(struct thread_info));
 
   // duplicate input_no with dup
@@ -213,8 +204,7 @@ void handle_file(int input_no, int output_no)
     printf("Launching thread %d.\n", i);
 
     thread_infos[i].index = i;
-    thread_infos[i].input_no = dup(input_no);
-    thread_infos[i].output_no = output_no;
+    strcpy(thread_infos[i].path, relativePath);
     thread_infos[i].line = 0;
     pthread_mutex_init(&thread_infos[i].line_lock, NULL);
   }
@@ -257,33 +247,23 @@ void *thread_main(void *argument)
 {
   struct thread_info *arg = (struct thread_info *)argument;
   int should_exit = 0;
-
+  int input_no = open(arg->path, O_RDONLY);
   //DBG
-  lseek(arg->input_no, 0, SEEK_SET);
-  printf("Thread started with arg %p, index %d and fno %d at %ld.\n", argument, arg->index, arg->input_no, lseek(arg->input_no, 0, SEEK_CUR));
-
-  if (arg->index)
-  {
-    sleep(1);
-  }
-
-  //DBG
-  printf("Thread started with arg %p, index %d and fno %d at %ld.\n", argument, arg->index, arg->input_no, lseek(arg->input_no, 0, SEEK_CUR));
-
+  
   while (!should_exit)
   {
-    enum Command cmd = get_next(arg->input_no);
+    enum Command cmd = get_next(input_no);
 
     //DBG
     if (cmd == CMD_INVALID)
     {
       printf("Thread %d found invalid command at line %d.\n", arg->index, arg->line+1);//TODO: Remove
-      cleanup(arg->input_no);
+      cleanup(input_no);
     }
     else if (cmd == CMD_WAIT || cmd == CMD_BARRIER)
     {
       // must always be checked for execution
-      should_exit = handle_command(cmd, arg);
+      should_exit = handle_command(cmd, arg,input_no);
     }
     else if (cmd == EOC)
     {
@@ -294,9 +274,9 @@ void *thread_main(void *argument)
       //only execute if on assigned lines
       //local reads to line are safe, only I write to line
       if (arg->line % used_threads == arg->index)
-        should_exit = handle_command(cmd, arg);
+        should_exit = handle_command(cmd, arg,input_no);
       else
-        cleanup(arg->input_no);
+        cleanup(input_no);
     }
 
     pthread_mutex_lock(&arg->line_lock);
@@ -304,24 +284,23 @@ void *thread_main(void *argument)
     pthread_mutex_unlock(&arg->line_lock);
   }
 
-  close(arg->input_no);
-  printf("Thread %d finished and closed fd %d.\n", arg->index, arg->input_no);
+  close(input_no);
+  printf("Thread %d finished and closed fd %d.\n", arg->index, input_no);
   return NULL;
 }
 
-int handle_command(enum Command cmd, struct thread_info *my_info)
+int handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
 {
   unsigned int event_id, delay, thread_id;
   size_t num_rows, num_columns, num_coords;
   size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
 
-  //DBG
-  printf("Handling command for thread %d with infd %d and outfd %d.\n", my_info->index, my_info->input_no, my_info->output_no);
+  printf("Here\n");
 
   switch (cmd)
   {
   case CMD_CREATE:
-    if (parse_create(my_info->input_no, &event_id, &num_rows, &num_columns) != 0)
+    if (parse_create(input_no, &event_id, &num_rows, &num_columns) != 0)
     {
       fprintf(stderr, "Invalid command. See HELP for usage\n");
       break;
@@ -335,7 +314,7 @@ int handle_command(enum Command cmd, struct thread_info *my_info)
     break;
 
   case CMD_RESERVE:
-    num_coords = parse_reserve(my_info->input_no, MAX_RESERVATION_SIZE, &event_id, xs, ys);
+    num_coords = parse_reserve(input_no, MAX_RESERVATION_SIZE, &event_id, xs, ys);
 
     if (num_coords == 0)
     {
@@ -352,18 +331,18 @@ int handle_command(enum Command cmd, struct thread_info *my_info)
 
   case CMD_LIST_EVENTS:
     lockAll();
-    ems_list_events(my_info->output_no);
+    ems_list_events(out_num);
     unlockAll();
   break;
   
   case CMD_SHOW:
-    if (parse_show(my_info->input_no, &event_id) != 0)
+    if (parse_show(input_no, &event_id) != 0)
     {
       fprintf(stderr, "Invalid command. See HELP for usage\n");
       break;
     }
     lockAll();
-    if (ems_show(event_id, my_info->output_no))
+    if (ems_show(event_id, out_num))
     {
       fprintf(stderr, "Failed to show event\n");
     }
@@ -371,7 +350,7 @@ int handle_command(enum Command cmd, struct thread_info *my_info)
     break;
 
   case CMD_WAIT:
-    if (parse_wait(my_info->input_no, &delay, &thread_id) == -1)
+    if (parse_wait(input_no, &delay, &thread_id) == -1)
     { // thread_id is not implemented
       fprintf(stderr, "Invalid command. See HELP for usage\n");
       break;
@@ -408,7 +387,7 @@ int handle_command(enum Command cmd, struct thread_info *my_info)
     break;
 
   case CMD_BARRIER:
-    cleanup(my_info->input_no);
+    cleanup(input_no);
     char barrier_can_continue = 0;
     while (!barrier_can_continue)
     {
@@ -433,7 +412,7 @@ int handle_command(enum Command cmd, struct thread_info *my_info)
     break;
 
   case CMD_EMPTY:
-    cleanup(my_info->input_no);
+    cleanup(input_no);
     break;
 
   case EOC:
