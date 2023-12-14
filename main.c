@@ -33,8 +33,6 @@ void handle_file(char* relativePath);
 int handle_command(enum Command cmd, struct thread_info *my_info,int input_no);
 int out_num;
 
-void lockAll();
-void unlockAll();
 void *thread_main(void *argument);
 
 unsigned int state_access_delay_ms = STATE_ACCESS_DELAY_MS;
@@ -224,24 +222,7 @@ void handle_file(char* relativePath)
   }
 }
 
-void lockAll()
-{
-  //sleep(1); //TODO: Make better
-  for (unsigned int i = 0; i < used_threads; i++)
-  {
-    if (thread_infos[i].id==pthread_self()) continue;
-    pthread_mutex_lock(&thread_infos[i].line_lock);
-  }
-}
 
-void unlockAll()
-{
-  for (unsigned int i = 0; i < used_threads; i++)
-  {
-    if(thread_infos[i].id==pthread_self()) continue;
-    pthread_mutex_unlock(&thread_infos[i].line_lock);
-  }
-}
 
 void *thread_main(void *argument)
 {
@@ -330,9 +311,7 @@ int handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
     break;
 
   case CMD_LIST_EVENTS:
-    lockAll();
     ems_list_events(out_num);
-    unlockAll();
   break;
   
   case CMD_SHOW:
@@ -341,12 +320,10 @@ int handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
       fprintf(stderr, "Invalid command. See HELP for usage\n");
       break;
     }
-    lockAll();
     if (ems_show(event_id, out_num))
     {
       fprintf(stderr, "Failed to show event\n");
     }
-    unlockAll();
     break;
 
   case CMD_WAIT:

@@ -109,6 +109,7 @@ int ems_create(unsigned int event_id, size_t num_rows, size_t num_cols)
   event->rows = num_rows;
   event->cols = num_cols;
   event->reservations = 0;
+  pthread_attr_init(&event->lock);
   event->data = malloc(num_rows * num_cols * sizeof(unsigned int));
 
   if (event->data == NULL)
@@ -149,7 +150,7 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t *xs, size_t *ys)
     fprintf(stderr, "Event not found\n");
     return 1;
   }
-
+  pthread_mutex_lock(&event->lock);
   unsigned int reservation_id = ++event->reservations;
 
   size_t i = 0;
@@ -172,7 +173,7 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t *xs, size_t *ys)
 
     *get_seat_with_delay(event, seat_index(event, row, col)) = reservation_id;
   }
-
+  
   // If the reservation was not successful, free the seats that were reserved.
   if (i < num_seats)
   {
@@ -181,9 +182,10 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t *xs, size_t *ys)
     {
       *get_seat_with_delay(event, seat_index(event, xs[j], ys[j])) = 0;
     }
+    pthread_mutex_unlock(&event->lock);
     return 1;
   }
-
+  pthread_mutex_unlock(&event->lock);
   return 0;
 }
 
