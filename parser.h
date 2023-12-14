@@ -16,6 +16,8 @@ enum Command {
   EOC  // End of commands
 };
 
+void cleanup(int fd);
+
 /// Reads a line and returns the corresponding command.
 /// @param fd File descriptor to read from.
 /// @return The command read.
