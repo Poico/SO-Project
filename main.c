@@ -23,6 +23,7 @@ struct thread_info
   pthread_mutex_t line_lock;
 
 } *thread_infos;
+
 unsigned int used_threads = 0;
 
 void process_args(int argc, char *argv[]);
