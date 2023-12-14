@@ -420,7 +420,7 @@ int handle_command(enum Command cmd, struct thread_info *my_info)
         pthread_mutex_lock(&thread_infos[i].line_lock);
         unsigned int other_line = thread_infos[i].line;
         pthread_mutex_unlock(&thread_infos[i].line_lock);
-        if (other_line != my_info->line)
+        if (other_line < my_info->line)
         {
           barrier_can_continue = 0;
           break;
