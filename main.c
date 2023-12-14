@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <string.h>
+#include <pthread.h>
 
 #include "constants.h"
 #include "operations.h"
@@ -18,7 +19,9 @@ unsigned int launch_processes(DIR *dir);
 int child_main(struct dirent *dirent);
 int process_file(struct dirent *dirent);
 void handle_file(int input_no, int output_no);
-int handle_command(enum Command cmd, int input_no, int output_no);
+int handle_command(enum Command cmd, int input_no, int output_no, struct thread_info *my_info);
+void lockAll();
+void unlockAll();
 
 unsigned int state_access_delay_ms = STATE_ACCESS_DELAY_MS;
 unsigned int max_proc = MAX_PROC, max_thread = MAX_THREADS;
@@ -26,22 +29,17 @@ char *glob_dirPath;
 
 struct thread_info
 {
+  int index;
   pthread_t id;
   int input_no, output_no;
+  int line;
+  pthread_mutex_t line_lock;
 } *thread_infos;
 int used_threads = 0;
-
-//struct thread_info ;
 
 int main(int argc, char *argv[])
 {
   process_args(argc, argv);
-
-  if (pthread_barrier_init(&barrier, NULL, max_thread))
-  {
-    fprintf(stderr, "Failed to initialize barrier\n");
-    return FAILURE;
-  }
 
   if (ems_init(state_access_delay_ms))
   {
@@ -126,7 +124,7 @@ unsigned int launch_processes(DIR *dir)
     if (pid < 0)
     {
       fprintf(stderr, "Fork failed.\n");
-      // TODO: Crash or error
+      exit(EXIT_FAILURE);
     }
     else if (pid == 0)
     {
@@ -174,17 +172,14 @@ int process_file(struct dirent *dirent)
   int input_no = open(relativePath, O_RDONLY);
 
   if (input_no == -1)
-  {
-    // TODO: Handle error
-  }
+    exit(EXIT_FAILURE);
 
   strcpy(ext, ".out");
   int output_no = open(relativePath, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
-  
+
   handle_file(input_no, output_no);
   close(input_no);
   close(output_no);
-  pthread_barrier_destroy(&barrier);
   return SUCESS;
 }
 
@@ -192,50 +187,82 @@ void handle_file(int input_no, int output_no)
 {
   char ch;
   int line_count = 0;
-  while(read(input_no, &ch, 1) != 0){
-    if(ch == '\n'){
+  while (read(input_no, &ch, 1) != 0)
+  {
+    if (ch == '\n')
+    {
       line_count++;
     }
   }
   lseek(input_no, 0, SEEK_SET); // Reset file descriptor to the start
-  
-  
-  
-  //Alloc pids and whatnot
+
   used_threads = line_count > max_thread ? max_thread : line_count;
   thread_infos = malloc(used_threads * sizeof(pthread_t));
 
-  //duplicate input_no with dup
+  // duplicate input_no with dup
   for (int i = 0; i < used_threads; i++)
   {
+    thread_infos[i].index = i;
     thread_infos[i].input_no = dup(input_no);
     thread_infos[i].output_no = dup(output_no);
-    //Launch threads
+    thread_infos[i].line = 0;
+    pthread_mutex_init(&thread_infos[i].line_lock, NULL);
+    
     if (pthread_create(&thread_infos[i].id, NULL, thread_main, &thread_infos[i]))
     {
       fprintf(stderr, "Failed to create thread\n");
       exit(EXIT_FAILURE);
     }
   }
-  
-
-  
-
-  // Para dar launchs ás threads como qrs q faça?
-
-
-  while (1)
+}
+void lockAll()
+{
+  sleep(1); //TODO: Make better
+  for (int i = 0; i < used_threads; i++)
   {
-    enum Command cmd = get_next(input_no);
+    if (thread_infos[i].id==pthread_self()) continue;
+    pthread_mutex_lock(&thread_infos[i].line_lock);
+  }
+}
+void unlockAll()
+{
+  for (int i = 0; i < used_threads; i++)
+  {
+    if(thread_infos[i].id==pthread_self()) continue;
+    pthread_mutex_unlock(&thread_infos[i].line_lock);
+  }
+}
+void thread_main(void *argument)
+{
+  struct thread_info *arg = (struct thread_info *)argument;
+  char should_exit = 0;
 
-      if (handle_command(cmd, input_no, output_no))
-        break;
+  while (!should_exit)
+  {
+    enum Command cmd = get_next(arg->input_no);
+
+    if (cmd == CMD_WAIT || cmd == CMD_BARRIER)
+    {
+      // must always be checked for execution
+      should_exit = handle_command(cmd, arg->input_no, arg->output_no, arg->index);
+    }
+    else
+    {
+      // only execute if on assigned lines
+      //local reads to line are safe, only I write to line
+      if (arg->line % used_threads == (arg->index - 1))
+        should_exit = handle_command(cmd, arg->input_no, arg->output_no, arg->index);
+    }
+
+    pthread_mutex_lock(&arg->line_lock);
+    arg->line++;
+    pthread_mutex_unlock(&arg->line_lock);
   }
 }
 
-int handle_command(enum Command cmd, int input_no, int output_no)
+int handle_command(enum Command cmd, int input_no, int output_no, struct thread_info *my_info)
 {
-  unsigned int event_id, delay;
+  unsigned int event_id, delay, thread_id;
   size_t num_rows, num_columns, num_coords;
   size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
 
@@ -271,33 +298,50 @@ int handle_command(enum Command cmd, int input_no, int output_no)
 
     break;
 
+  case CMD_LIST_EVENTS:
+
+    if (parse_list(input_no) != 0)
+    {
+      fprintf(stderr, "Invalid command. See HELP for usage\n");
+      break;
+    }
+    lockAll();
+    ems_list(output_no);
+    unlockAll();
+  break;
+  
   case CMD_SHOW:
     if (parse_show(input_no, &event_id) != 0)
     {
       fprintf(stderr, "Invalid command. See HELP for usage\n");
       break;
     }
-
+    lockAll();
     if (ems_show(event_id, output_no))
     {
       fprintf(stderr, "Failed to show event\n");
     }
-
+    unlockAll();
     break;
 
   case CMD_WAIT:
-    if (parse_wait(input_no, &delay, NULL) == -1)
+    if (parse_wait(input_no, &delay, &thread_id) == -1)
     { // thread_id is not implemented
       fprintf(stderr, "Invalid command. See HELP for usage\n");
       break;
     }
-
-    if (delay > 0)
+    if (delay <= 0)
+      break;
+    if (thread_id == 0)
     {
       printf("Waiting...\n");
-      ems_wait(delay);
+      ems_wait(delay, pthread_self());
     }
-
+    else if (thread_id-1 == my_info->index)
+    {
+      printf("Waiting...\n");
+      ems_wait(delay, pthread_self());
+    }
     break;
 
   case CMD_INVALID:
@@ -311,21 +355,42 @@ int handle_command(enum Command cmd, int input_no, int output_no)
         "  RESERVE <event_id> [(<x1>,<y1>) (<x2>,<y2>) ...]\n"
         "  SHOW <event_id>\n"
         "  LIST\n"
-        "  WAIT <delay_ms> [thread_id]\n" // thread_id is not implemented
-        "  BARRIER\n"                     // Handled separately
+        "  WAIT <delay_ms> [thread_id]\n"
+        "  BARRIER\n"
         "  HELP\n");
 
     break;
 
-  case CMD_BARRIER: // Handled separately
-    //TODO: Continue implementation
+  case CMD_BARRIER:
+    char barrier_can_continue = 0;
+    while (!barrier_can_continue)
+    {
+      barrier_can_continue = 1;
+
+      for (int i = 0; i < used_threads; i++)
+      {
+        if (i == my_info->index) continue;
+        pthread_mutex_lock(&thread_infos[i].line_lock);
+        int other_line = thread_infos[i].line;
+        pthread_mutex_unlock(&thread_infos[i].line_lock);
+        if (other_line != my_info->line)
+        {
+          barrier_can_continue = 0;
+          break;
+        }
+      }
+      //sleep to prevent spamming mutex locks
+      if (!barrier_can_continue)
+        ems_wait(2, pthread_self());
+    }
     break;
+
   case CMD_EMPTY:
     break;
 
   case EOC:
     return 1;
   }
-
+  
   return 0;
 }
