@@ -38,6 +38,6 @@ int ems_list_events(int file_no);
 /// Waits for a given amount of time.
 /// @param delay_us Delay in milliseconds.
 // @param thread_id Id of the thread to wait for.
-void ems_wait(unsigned int delay_ms, unsigned int thread_id);
+void ems_wait(unsigned int delay_ms);
 
 #endif  // EMS_OPERATIONS_H

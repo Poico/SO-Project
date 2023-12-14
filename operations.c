@@ -265,8 +265,9 @@ int write_to_file(int fileDescriptor, char *buffer)
   }
   return EXIT_SUCCESS;
 }
-void ems_wait(unsigned int delay_ms, unsigned int thread_id)
+void ems_wait(unsigned int delay_ms)
 {
   struct timespec delay = delay_to_timespec(delay_ms);
-  nanosleep(&delay, thread_id);
+  
+  nanosleep(&delay, NULL);
 }

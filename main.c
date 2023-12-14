@@ -14,7 +14,17 @@
 #include "parser.h"
 #include "auxiliar.h"
 
-void process_args(int argc, char *argv[]);
+struct thread_info
+{
+  unsigned int index;
+  pthread_t id;
+  int input_no, output_no;
+  unsigned int line;
+  pthread_mutex_t line_lock;
+} *thread_infos;
+unsigned int used_threads = 0;
+
+void *process_args(int argc, char *argv[]);
 unsigned int launch_processes(DIR *dir);
 int child_main(struct dirent *dirent);
 int process_file(struct dirent *dirent);
@@ -22,20 +32,11 @@ void handle_file(int input_no, int output_no);
 int handle_command(enum Command cmd, int input_no, int output_no, struct thread_info *my_info);
 void lockAll();
 void unlockAll();
+void *thread_main(void *argument);
 
 unsigned int state_access_delay_ms = STATE_ACCESS_DELAY_MS;
 unsigned int max_proc = MAX_PROC, max_thread = MAX_THREADS;
 char *glob_dirPath;
-
-struct thread_info
-{
-  int index;
-  pthread_t id;
-  int input_no, output_no;
-  int line;
-  pthread_mutex_t line_lock;
-} *thread_infos;
-int used_threads = 0;
 
 int main(int argc, char *argv[])
 {
@@ -70,7 +71,7 @@ int main(int argc, char *argv[])
   return 0;
 }
 
-void process_args(int argc, char *argv[])
+void *process_args(int argc, char *argv[])
 {
   if (argc > 3)
   {
@@ -111,6 +112,8 @@ void process_args(int argc, char *argv[])
 
     max_proc = (unsigned int)proc_count;
   }
+
+  return NULL;
 }
 
 unsigned int launch_processes(DIR *dir)
@@ -177,6 +180,7 @@ int process_file(struct dirent *dirent)
   strcpy(ext, ".out");
   int output_no = open(relativePath, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
 
+  free(thread_infos);
   handle_file(input_no, output_no);
   close(input_no);
   close(output_no);
@@ -186,7 +190,7 @@ int process_file(struct dirent *dirent)
 void handle_file(int input_no, int output_no)
 {
   char ch;
-  int line_count = 0;
+  unsigned int line_count = 0;
   while (read(input_no, &ch, 1) != 0)
   {
     if (ch == '\n')
@@ -196,11 +200,11 @@ void handle_file(int input_no, int output_no)
   }
   lseek(input_no, 0, SEEK_SET); // Reset file descriptor to the start
 
-  used_threads = line_count > max_thread ? max_thread : line_count;
+  used_threads = line_count > max_thread ? max_thread : line_count; //TODO: Verify this
   thread_infos = malloc(used_threads * sizeof(pthread_t));
 
   // duplicate input_no with dup
-  for (int i = 0; i < used_threads; i++)
+  for (unsigned int i = 0; i < used_threads; i++)
   {
     thread_infos[i].index = i;
     thread_infos[i].input_no = dup(input_no);
@@ -218,7 +222,7 @@ void handle_file(int input_no, int output_no)
 void lockAll()
 {
   sleep(1); //TODO: Make better
-  for (int i = 0; i < used_threads; i++)
+  for (unsigned int i = 0; i < used_threads; i++)
   {
     if (thread_infos[i].id==pthread_self()) continue;
     pthread_mutex_lock(&thread_infos[i].line_lock);
@@ -226,16 +230,16 @@ void lockAll()
 }
 void unlockAll()
 {
-  for (int i = 0; i < used_threads; i++)
+  for (unsigned int i = 0; i < used_threads; i++)
   {
     if(thread_infos[i].id==pthread_self()) continue;
     pthread_mutex_unlock(&thread_infos[i].line_lock);
   }
 }
-void thread_main(void *argument)
+void *thread_main(void *argument)
 {
   struct thread_info *arg = (struct thread_info *)argument;
-  char should_exit = 0;
+  int should_exit = 0;
 
   while (!should_exit)
   {
@@ -244,20 +248,22 @@ void thread_main(void *argument)
     if (cmd == CMD_WAIT || cmd == CMD_BARRIER)
     {
       // must always be checked for execution
-      should_exit = handle_command(cmd, arg->input_no, arg->output_no, arg->index);
+      should_exit = handle_command(cmd, arg->input_no, arg->output_no, arg);
     }
     else
     {
       // only execute if on assigned lines
       //local reads to line are safe, only I write to line
       if (arg->line % used_threads == (arg->index - 1))
-        should_exit = handle_command(cmd, arg->input_no, arg->output_no, arg->index);
+        should_exit = handle_command(cmd, arg->input_no, arg->output_no, arg);
     }
 
     pthread_mutex_lock(&arg->line_lock);
     arg->line++;
     pthread_mutex_unlock(&arg->line_lock);
   }
+
+  return NULL;
 }
 
 int handle_command(enum Command cmd, int input_no, int output_no, struct thread_info *my_info)
@@ -299,14 +305,8 @@ int handle_command(enum Command cmd, int input_no, int output_no, struct thread_
     break;
 
   case CMD_LIST_EVENTS:
-
-    if (parse_list(input_no) != 0)
-    {
-      fprintf(stderr, "Invalid command. See HELP for usage\n");
-      break;
-    }
     lockAll();
-    ems_list(output_no);
+    ems_list_events(output_no);
     unlockAll();
   break;
   
@@ -335,12 +335,12 @@ int handle_command(enum Command cmd, int input_no, int output_no, struct thread_
     if (thread_id == 0)
     {
       printf("Waiting...\n");
-      ems_wait(delay, pthread_self());
+      ems_wait(delay);
     }
     else if (thread_id-1 == my_info->index)
     {
       printf("Waiting...\n");
-      ems_wait(delay, pthread_self());
+      ems_wait(delay);
     }
     break;
 
@@ -367,11 +367,11 @@ int handle_command(enum Command cmd, int input_no, int output_no, struct thread_
     {
       barrier_can_continue = 1;
 
-      for (int i = 0; i < used_threads; i++)
+      for (unsigned int i = 0; i < used_threads; i++)
       {
         if (i == my_info->index) continue;
         pthread_mutex_lock(&thread_infos[i].line_lock);
-        int other_line = thread_infos[i].line;
+        unsigned int other_line = thread_infos[i].line;
         pthread_mutex_unlock(&thread_infos[i].line_lock);
         if (other_line != my_info->line)
         {
@@ -381,7 +381,7 @@ int handle_command(enum Command cmd, int input_no, int output_no, struct thread_
       }
       //sleep to prevent spamming mutex locks
       if (!barrier_can_continue)
-        ems_wait(2, pthread_self());
+        ems_wait(2);
     }
     break;
 
