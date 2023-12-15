@@ -27,7 +27,7 @@ struct thread_info
 
 unsigned int used_threads = 0;
 
-void process_args(int argc, char *argv[]);
+void process_args(int argc, char *argv[], DIR **dir);
 unsigned int launch_processes(DIR *dir);
 int child_main(struct dirent *dirent);
 int process_file(struct dirent *dirent);
@@ -46,10 +46,8 @@ char *glob_dirPath;
 
 int main(int argc, char *argv[])
 {
-  process_args(argc, argv);
-
-  // Fetch file list
-  DIR *dir = opendir("jobs");
+  DIR *dir;
+  process_args(argc, argv, &dir);
 
   if (!dir)
   {
@@ -69,12 +67,12 @@ int main(int argc, char *argv[])
   return 0;
 }
 
-void process_args(int argc, char *argv[])
+void process_args(int argc, char *argv[], DIR **dir)
 {
-  if (argc > 3)
+  if (argc > 4)
   {
     char *endptr;
-    unsigned long int delay = strtoul(argv[3], &endptr, 10);
+    unsigned long int delay = strtoul(argv[4], &endptr, 10);
 
     if (*endptr != '\0' || delay > UINT_MAX)
     {
@@ -84,10 +82,10 @@ void process_args(int argc, char *argv[])
 
     state_access_delay_ms = (unsigned int)delay;
   }
-  if (argc > 2)
+  if (argc > 3)
   {
     char *endptr;
-    unsigned long int max_threads = strtoul(argv[2], &endptr, 10);
+    unsigned long int max_threads = strtoul(argv[3], &endptr, 10);
 
     if (*endptr != '\0' || max_threads > UINT_MAX)
     {
@@ -97,10 +95,10 @@ void process_args(int argc, char *argv[])
 
     max_thread = (unsigned int)max_threads;
   }
-  if (argc > 1)
+  if (argc > 2)
   {
     char *endptr;
-    unsigned long int proc_count = strtoul(argv[1], &endptr, 10);
+    unsigned long int proc_count = strtoul(argv[2], &endptr, 10);
 
     if (*endptr != '\0' || proc_count > UINT_MAX)
     {
@@ -110,9 +108,14 @@ void process_args(int argc, char *argv[])
 
     max_proc = (unsigned int)proc_count;
   }
-
-  // DBG
-  printf("Using %d procs, %d threads and %d delay.\n", max_proc, max_thread, state_access_delay_ms);
+  if (argc > 1)
+  {
+    *dir = opendir(argv[1]);
+  }
+  else
+  {
+    fprintf(stderr, "You must always provide a path to a job directory.\n");
+  }
 }
 
 unsigned int launch_processes(DIR *dir)
@@ -122,8 +125,6 @@ unsigned int launch_processes(DIR *dir)
 
   while ((dirent = readdir(dir)) != NULL)
   {
-    // DBG
-    printf("Forking for file '%s'.\n", dirent->d_name);
     pid_t pid = fork();
     if (pid < 0)
     {
@@ -179,8 +180,6 @@ int process_file(struct dirent *dirent)
     return SUCESS;
   }
 
-  // DBG
-  printf("Opening file '%s'.\n", relativePath);
   char relativePathCopy[1024];
   strcpy(relativePathCopy, relativePath);
   strcpy(ext, ".out");
@@ -198,11 +197,6 @@ int process_file(struct dirent *dirent)
 void handle_file(char *relativePath)
 {
   int fd = open(relativePath, O_RDONLY);
-  if (fd == -1)
-  {
-    // Handle error
-  }
-
   unsigned int line_count = 0;
   char ch;
   while (read(fd, &ch, 1) > 0)
@@ -228,9 +222,6 @@ void handle_file(char *relativePath)
   // duplicate input_no with dup
   for (unsigned int i = 0; i < used_threads; i++)
   {
-    // DBG
-    printf("Launching thread %d.\n", i);
-
     thread_infos[i].index = i;
     strcpy(thread_infos[i].path, relativePath);
     thread_infos[i].line = 0;
@@ -272,32 +263,21 @@ void *thread_main(void *argument)
   {
     enum Command cmd = get_next(input_no);
 
-    if (cmd == CMD_INVALID)
-    {
-      printf("Thread %d found invalid command at line %d.\n", arg->index, arg->line + 1); // TODO: Remove
-    }
-    else if (cmd == CMD_EMPTY)
-    {
-      printf("Thread %d found empty at line %d.\n", arg->index, arg->line + 1);
-    }
-    else if (cmd == CMD_WAIT || cmd == CMD_BARRIER)
+    if (cmd == CMD_WAIT || cmd == CMD_BARRIER)
     {
       // must always be checked for execution
       handle_command(cmd, arg, input_no);
     }
     else if (cmd == EOC)
     {
-      printf("Thread %d reached EOC at pos %ld.\n", arg->index, lseek(input_no, 0, SEEK_CUR));
       break;
     }
     else //general commands
     {
       // only execute if on assigned lines
       // local reads to line are safe, only I write to line
-      printf("Thread %d found command %d at line %d.\n", arg->index, (int)cmd, arg->line + 1);
       if (arg->line % used_threads == arg->index){
         handle_command(cmd, arg, input_no);
-        printf("Thread %d Eu vou processar a linha %d.\n", arg->index, arg->line + 1);
       }
       else if (cmd == CMD_CREATE || cmd == CMD_RESERVE || cmd == CMD_SHOW){
         cleanup(input_no);
@@ -310,7 +290,6 @@ void *thread_main(void *argument)
   }
 
   close(input_no);
-  printf("Thread %d finished and closed fd %d.\n", arg->index, input_no);
   thread_exit(arg, THREAD_FINISHED, input_no);
   // Should not execute
   return NULL;
@@ -321,8 +300,6 @@ void handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
   unsigned int event_id, delay, thread_id;
   size_t num_rows, num_columns, num_coords;
   size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
-
-  printf("Thread %d Handling command %d.\n", my_info->index, (int)cmd);
 
   switch (cmd)
   {
@@ -357,7 +334,6 @@ void handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
     break;
 
   case CMD_LIST_EVENTS:
-    printf("Handling LIST.\n");
     ems_list_events(out_num, &out_lock);
     break;
 
@@ -368,7 +344,6 @@ void handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
       break;
     }
 
-    printf("Handling SHOW.\n");
     if (ems_show(event_id, out_num, &out_lock))
     {
       fprintf(stderr, "Failed to show event\n");
