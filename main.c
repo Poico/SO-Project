@@ -33,6 +33,7 @@ int process_file(struct dirent *dirent);
 void handle_file(char *relativePath);
 int handle_command(enum Command cmd, struct thread_info *my_info, int input_no);
 int out_num;
+int *waited_threads;
 
 void *thread_main(void *argument);
 
@@ -199,7 +200,7 @@ void handle_file(char *relativePath)
     // Handle error
   }
 
-  unsigned int line_count = 0;
+  int line_count = 0;
   char ch;
   while (read(fd, &ch, 1) > 0)
   {
@@ -210,10 +211,14 @@ void handle_file(char *relativePath)
   }
 
   close(fd);
-  if(max_thread > line_count)
+  if(line_count < max_thread)
+  {
     used_threads = line_count;
+  }
   else
+  {
     used_threads = max_thread;
+  }
 
   thread_infos = malloc(used_threads * sizeof(struct thread_info));
 
@@ -418,4 +423,18 @@ int handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
   }
 
   return 0;
+}
+
+void waited_threadsInitialized()
+{
+  waited_threads = malloc(used_threads * sizeof(int));
+  for (unsigned int i = 0; i < used_threads; i++)
+  {
+    waited_threads[i] = 0;
+  }
+}
+
+void free_waited_threads()
+{
+  free(waited_threads);
 }
