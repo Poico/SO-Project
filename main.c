@@ -32,8 +32,10 @@ int child_main(struct dirent *dirent);
 int process_file(struct dirent *dirent);
 void handle_file(char *relativePath);
 int handle_command(enum Command cmd, struct thread_info *my_info, int input_no);
+void waited_threadsInitialized();
+void free_waited_threads();
 int out_num;
-int *waited_threads;
+unsigned int *waited_threads;
 
 void *thread_main(void *argument);
 
@@ -62,7 +64,7 @@ int main(int argc, char *argv[])
     wait(NULL);
     processCount--;
   }
-
+  free_waited_threads();
   closedir(dir);
   return 0;
 }
@@ -200,7 +202,7 @@ void handle_file(char *relativePath)
     // Handle error
   }
 
-  int line_count = 0;
+  unsigned int line_count = 0;
   char ch;
   while (read(fd, &ch, 1) > 0)
   {
@@ -219,6 +221,7 @@ void handle_file(char *relativePath)
   {
     used_threads = max_thread;
   }
+  waited_threadsInitialized();
 
   thread_infos = malloc(used_threads * sizeof(struct thread_info));
 
@@ -286,6 +289,14 @@ void *thread_main(void *argument)
     }
 
     pthread_mutex_lock(&arg->line_lock);
+    for (unsigned int i = 0; i < used_threads; i++)
+    {
+      if (waited_threads[i] == 1)
+      {
+        ems_wait(waited_threads[i]);
+      }
+    }
+    waited_threadsInitialized();
     arg->line++;
     pthread_mutex_unlock(&arg->line_lock);
   }
@@ -361,13 +372,16 @@ int handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
       break;
     if (thread_id == 0)
     {
-      printf("Waiting...\n");
-      ems_wait(delay);
+      for (unsigned int i = 0; i < used_threads; i++)
+      {
+        if (i == my_info->index)
+          continue;
+        waited_threads[i] += delay;
+      }
     }
     else if (thread_id - 1 == my_info->index)
     {
-      printf("Waiting...\n");
-      ems_wait(delay);
+      waited_threads[my_info->index] +=delay;
     }
     break;
 
