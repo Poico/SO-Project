@@ -213,7 +213,7 @@ void handle_file(char *relativePath)
   }
 
   close(fd);
-  if(line_count < max_thread)
+  if (line_count < max_thread)
   {
     used_threads = line_count;
   }
@@ -285,10 +285,9 @@ void *thread_main(void *argument)
       if (arg->line % used_threads == arg->index)
         should_exit = handle_command(cmd, arg, input_no);
       else
-        cleanup(input_no);
+        //TODO: BREAK IN THE SWITCH
+        // CLEANUP no show, reserve, create
     }
-
-    pthread_mutex_lock(&arg->line_lock);
     for (unsigned int i = 0; i < used_threads; i++)
     {
       if (waited_threads[i] == 1)
@@ -297,6 +296,7 @@ void *thread_main(void *argument)
       }
     }
     waited_threadsInitialized();
+    pthread_mutex_lock(&arg->line_lock);
     arg->line++;
     pthread_mutex_unlock(&arg->line_lock);
   }
@@ -381,7 +381,7 @@ int handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
     }
     else if (thread_id - 1 == my_info->index)
     {
-      waited_threads[my_info->index] +=delay;
+      waited_threads[my_info->index] += delay;
     }
     break;
 
@@ -403,7 +403,6 @@ int handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
     break;
 
   case CMD_BARRIER:
-    cleanup(input_no);
     char barrier_can_continue = 0;
     while (!barrier_can_continue)
     {
@@ -429,7 +428,6 @@ int handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
     break;
 
   case CMD_EMPTY:
-    cleanup(input_no);
     break;
 
   case EOC:
