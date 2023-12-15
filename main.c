@@ -176,7 +176,7 @@ int process_file(struct dirent *dirent)
   char *ext = strstr(relativePath, ".jobs");
   if (ext != &relativePath[strlen(relativePath) - 5])
   {
-    return FAILURE;
+    return SUCESS;
   }
 
   // DBG
@@ -197,8 +197,6 @@ int process_file(struct dirent *dirent)
 
 void handle_file(char *relativePath)
 {
-  // DBG
-  printf("At %s.\n", relativePath);
   int fd = open(relativePath, O_RDONLY);
   if (fd == -1)
   {
@@ -274,7 +272,6 @@ void *thread_main(void *argument)
   {
     enum Command cmd = get_next(input_no);
 
-    // DBG
     if (cmd == CMD_INVALID)
     {
       printf("Thread %d found invalid command at line %d.\n", arg->index, arg->line + 1); // TODO: Remove
