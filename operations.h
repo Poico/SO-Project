@@ -2,6 +2,7 @@
 #define EMS_OPERATIONS_H
 
 #include <stddef.h>
+#include <pthread.h>
 
 /// Initializes the EMS state.
 /// @param delay_ms State access delay in milliseconds.
@@ -29,11 +30,11 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t *xs, size_t *ys)
 /// Prints the given event.
 /// @param event_id Id of the event to print.
 /// @return 0 if the event was printed successfully, 1 otherwise.
-int ems_show(unsigned int event_id, int file_no);
+int ems_show(unsigned int event_id, int file_no, pthread_mutex_t out_lock);
 
 /// Prints all the events.
 /// @return 0 if the events were printed successfully, 1 otherwise.
-int ems_list_events(int file_no);
+int ems_list_events(int file_no, pthread_mutex_t out_lock);
 
 /// Waits for a given amount of time.
 /// @param delay_us Delay in milliseconds.

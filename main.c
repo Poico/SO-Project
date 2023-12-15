@@ -35,6 +35,7 @@ int handle_command(enum Command cmd, struct thread_info *my_info, int input_no);
 void waited_threadsInitialized();
 void free_waited_threads();
 int out_num;
+pthread_mutex_t out_lock;
 unsigned int *waited_threads;
 
 void *thread_main(void *argument);
@@ -185,8 +186,11 @@ int process_file(struct dirent *dirent)
   strcpy(relativePathCopy, relativePath);
   strcpy(ext, ".out");
   out_num = open(relativePath, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+  pthread_mutex_init(&out_lock, NULL);
 
   handle_file(relativePathCopy);
+
+  pthread_mutex_destroy(&out_lock);
   free(thread_infos);
   close(out_num);
   return SUCESS;
@@ -285,8 +289,10 @@ void *thread_main(void *argument)
       if (arg->line % used_threads == arg->index)
         should_exit = handle_command(cmd, arg, input_no);
       else
-        //TODO: BREAK IN THE SWITCH
-        // CLEANUP no show, reserve, create
+      {
+        cleanup(input_no);
+        break;
+      }
     }
     for (unsigned int i = 0; i < used_threads; i++)
     {
@@ -347,7 +353,7 @@ int handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
     break;
 
   case CMD_LIST_EVENTS:
-    ems_list_events(out_num);
+    ems_list_events(out_num, out_lock);
     break;
 
   case CMD_SHOW:
@@ -356,7 +362,7 @@ int handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
       fprintf(stderr, "Invalid command. See HELP for usage\n");
       break;
     }
-    if (ems_show(event_id, out_num))
+    if (ems_show(event_id, out_num, out_lock))
     {
       fprintf(stderr, "Failed to show event\n");
     }
@@ -364,7 +370,7 @@ int handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
 
   case CMD_WAIT:
     if (parse_wait(input_no, &delay, &thread_id) == -1)
-    { // thread_id is not implemented
+    {
       fprintf(stderr, "Invalid command. See HELP for usage\n");
       break;
     }
