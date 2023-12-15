@@ -52,15 +52,10 @@ enum Command get_next(int fd) {
   if (read(fd, buf, 1) != 1) {
     return EOC;
   }
-
-  //DBG
-  printf("Get next found '%c' at pos %ld with fno %d.\n", buf[0], lseek(fd, 0, SEEK_CUR), fd);
-
+  
   switch (buf[0]) {
     case 'C':
       if (read(fd, buf + 1, 6) != 6 || strncmp(buf, "CREATE ", 7) != 0) {
-        //DBG
-        printf("Get next found invalid '%s'.\n", buf);
         cleanup(fd);
         return CMD_INVALID;
       }
@@ -69,8 +64,6 @@ enum Command get_next(int fd) {
 
     case 'R':
       if (read(fd, buf + 1, 7) != 7 || strncmp(buf, "RESERVE ", 8) != 0) {
-        //DBG
-        printf("Get next found invalid '%s'.\n", buf);
         cleanup(fd);
         return CMD_INVALID;
       }
@@ -79,8 +72,6 @@ enum Command get_next(int fd) {
 
     case 'S':
       if (read(fd, buf + 1, 4) != 4 || strncmp(buf, "SHOW ", 5) != 0) {
-        //DBG
-        printf("Get next found invalid '%s'.\n", buf);
         cleanup(fd);
         return CMD_INVALID;
       }
@@ -89,15 +80,11 @@ enum Command get_next(int fd) {
 
     case 'L':
       if (read(fd, buf + 1, 3) != 3 || strncmp(buf, "LIST", 4) != 0) {
-        //DBG
-        printf("Get next found invalid '%s'.\n", buf);
         cleanup(fd);
         return CMD_INVALID;
       }
 
       if (read(fd, buf + 4, 1) != 0 && buf[4] != '\n') {
-        //DBG
-        printf("Get next found invalid '%s'.\n", buf);
         cleanup(fd);
         return CMD_INVALID;
       }
@@ -106,15 +93,11 @@ enum Command get_next(int fd) {
 
     case 'B':
       if (read(fd, buf + 1, 6) != 6 || strncmp(buf, "BARRIER", 7) != 0) {
-        //DBG
-        printf("Get next found invalid '%s'.\n", buf);
         cleanup(fd);
         return CMD_INVALID;
       }
 
       if (read(fd, buf + 7, 1) != 0 && buf[7] != '\n') {
-        //DBG
-        printf("Get next found invalid '%s'.\n", buf);
         cleanup(fd);
         return CMD_INVALID;
       }
@@ -123,8 +106,6 @@ enum Command get_next(int fd) {
 
     case 'W':
       if (read(fd, buf + 1, 4) != 4 || strncmp(buf, "WAIT ", 5) != 0) {
-        //DBG
-        printf("Get next found invalid '%s'.\n", buf);
         cleanup(fd);
         return CMD_INVALID;
       }
@@ -133,15 +114,11 @@ enum Command get_next(int fd) {
 
     case 'H':
       if (read(fd, buf + 1, 3) != 3 || strncmp(buf, "HELP", 4) != 0) {
-        //DBG
-        printf("Get next found invalid '%s'.\n", buf);
         cleanup(fd);
         return CMD_INVALID;
       }
 
       if (read(fd, buf + 4, 1) != 0 && buf[4] != '\n') {
-        //DBG
-        printf("Get next found invalid '%s'.\n", buf);
         cleanup(fd);
         return CMD_INVALID;
       }
@@ -156,8 +133,6 @@ enum Command get_next(int fd) {
       return CMD_EMPTY;
 
     default:
-      //DBG
-      printf("Get next found invalid char '%c'.\n", buf[0]);
       cleanup(fd);
       return CMD_INVALID;
   }
