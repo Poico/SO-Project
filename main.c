@@ -22,6 +22,7 @@ struct thread_info
   unsigned int line;
   pthread_mutex_t line_lock;
   int exit_code;
+  off_t pos;
 } *thread_infos;
 
 unsigned int used_threads = 0;
@@ -32,13 +33,12 @@ int child_main(struct dirent *dirent);
 int process_file(struct dirent *dirent);
 void handle_file(char *relativePath);
 void handle_command(enum Command cmd, struct thread_info *my_info, int input_no);
-void thread_exit(struct thread_info *me, int code);
+void thread_exit(struct thread_info *me, int code, int fd);
 int out_num;
 pthread_mutex_t out_lock;
 unsigned int *waited_threads;
 
 void *thread_main(void *argument);
-void skip_lines(int fd, unsigned int lines);
 
 unsigned int state_access_delay_ms = STATE_ACCESS_DELAY_MS;
 unsigned int max_proc = MAX_PROC, max_thread = MAX_THREADS;
@@ -236,6 +236,7 @@ void handle_file(char *relativePath)
     thread_infos[i].index = i;
     strcpy(thread_infos[i].path, relativePath);
     thread_infos[i].line = 0;
+    thread_infos[i].pos = 0;
     pthread_mutex_init(&thread_infos[i].line_lock, NULL);
   }
 
@@ -254,7 +255,7 @@ void handle_file(char *relativePath)
 
     for (unsigned int i = 0; i < used_threads; i++)
     {
-      pthread_join(thread_infos[i].id, (void**)&ret_code);
+      pthread_join(thread_infos[i].id, (void **)&ret_code);
       if (*ret_code == THREAD_FINISHED)
       {
         finished = 1;
@@ -267,7 +268,7 @@ void *thread_main(void *argument)
 {
   struct thread_info *arg = (struct thread_info *)argument;
   int input_no = open(arg->path, O_RDONLY);
-  skip_lines(input_no, arg->line);
+  lseek(input_no, arg->pos, SEEK_SET);
 
   while (1)
   {
@@ -288,19 +289,20 @@ void *thread_main(void *argument)
       printf("Thread %d reached EOC at pos %ld.\n", arg->index, lseek(input_no, 0, SEEK_CUR));
       break;
     }
-    else
+    else //general commands
     {
       // only execute if on assigned lines
       // local reads to line are safe, only I write to line
-      if (arg->line % used_threads == arg->index)
+      printf("Thread %d found command %d at line %d.\n", arg->index, (int)cmd, arg->line + 1);
+      if (arg->line % used_threads == arg->index){
         handle_command(cmd, arg, input_no);
-      else
-      {
-        if (cmd == CMD_CREATE || cmd == CMD_RESERVE || cmd == CMD_SHOW || cmd == CMD_EMPTY)
-          cleanup(input_no);
+        printf("Thread %d Eu vou processar a linha %d.\n", arg->index, arg->line + 1);
+      }
+      else if (cmd == CMD_CREATE || cmd == CMD_RESERVE || cmd == CMD_SHOW || cmd == CMD_EMPTY){
+        cleanup(input_no);
       }
     }
-  
+
     pthread_mutex_lock(&arg->line_lock);
     arg->line++;
     pthread_mutex_unlock(&arg->line_lock);
@@ -308,8 +310,8 @@ void *thread_main(void *argument)
 
   close(input_no);
   printf("Thread %d finished and closed fd %d.\n", arg->index, input_no);
-  thread_exit(arg, THREAD_FINISHED);
-  //Should not execute
+  thread_exit(arg, THREAD_FINISHED, input_no);
+  // Should not execute
   return NULL;
 }
 
@@ -319,7 +321,7 @@ void handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
   size_t num_rows, num_columns, num_coords;
   size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
 
-  printf("%d Handling command %d.\n", my_info->index, (int)cmd);
+  printf("Thread %d Handling command %d.\n", my_info->index, (int)cmd);
 
   switch (cmd)
   {
@@ -329,7 +331,7 @@ void handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
       fprintf(stderr, "Invalid command. See HELP for usage\n");
       break;
     }
-
+    
     if (ems_create(event_id, num_rows, num_columns))
     {
       fprintf(stderr, "Failed to create event\n");
@@ -411,25 +413,20 @@ void handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
     pthread_mutex_lock(&my_info->line_lock);
     my_info->line++;
     pthread_mutex_unlock(&my_info->line_lock);
-    thread_exit(my_info, THREAD_BARRIER);
+    thread_exit(my_info, THREAD_BARRIER, input_no);
     break;
 
   case CMD_EMPTY:
     break;
 
   case EOC:
-    break; //Handled externally
+    break; // Handled externally
   }
 }
 
-void thread_exit(struct thread_info *me, int code)
+void thread_exit(struct thread_info *me, int code, int fd)
 {
   me->exit_code = code;
+  me->pos = lseek(fd, 0, SEEK_CUR);
   pthread_exit(&me->exit_code);
-}
-
-void skip_lines(int fd, unsigned int lines)
-{
-  for (unsigned int i = 0; i < lines; i++)
-    cleanup(fd);
 }

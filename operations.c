@@ -249,8 +249,7 @@ int ems_list_events(int file_no, pthread_mutex_t *out_lock)
   while (current != NULL)
   {
     char buffer[1024];
-    write_to_file(file_no, "Event: ");
-    sprintf(buffer, "%u\n", (current->event)->id);
+    sprintf(buffer, "Event: %u\n", (current->event)->id);
     write_to_file(file_no, buffer); //TODO: end this part
     current = current->next;
   }
@@ -272,6 +271,7 @@ int write_to_file(int fileDescriptor, char *buffer)
   }
   return EXIT_SUCCESS;
 }
+
 void ems_wait(unsigned int delay_ms)
 {
   struct timespec delay = delay_to_timespec(delay_ms);
