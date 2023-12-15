@@ -189,7 +189,7 @@ int ems_reserve(unsigned int event_id, size_t num_seats, size_t *xs, size_t *ys)
   return 0;
 }
 
-int ems_show(unsigned int event_id, int file_no, pthread_mutex_t out_lock)
+int ems_show(unsigned int event_id, int file_no, pthread_mutex_t *out_lock)
 {
   if (event_list == NULL)
   {
@@ -205,7 +205,7 @@ int ems_show(unsigned int event_id, int file_no, pthread_mutex_t out_lock)
     return 1;
   }
 
-  pthread_mutex_lock(&out_lock);
+  pthread_mutex_lock(out_lock);
   for (size_t i = 1; i <= event->rows; i++)
   {
     char buffer[1024];
@@ -224,12 +224,12 @@ int ems_show(unsigned int event_id, int file_no, pthread_mutex_t out_lock)
     sprintf(buffer, "\n");
     write_to_file(file_no, buffer);
   }
-  pthread_mutex_unlock(&out_lock);
+  pthread_mutex_unlock(out_lock);
 
   return 0;
 }
 
-int ems_list_events(int file_no, pthread_mutex_t out_lock)
+int ems_list_events(int file_no, pthread_mutex_t *out_lock)
 {
   if (event_list == NULL)
   {
@@ -244,7 +244,7 @@ int ems_list_events(int file_no, pthread_mutex_t out_lock)
   }
 
 
-  pthread_mutex_lock(&out_lock);
+  pthread_mutex_lock(out_lock);
   struct ListNode *current = event_list->head;
   while (current != NULL)
   {
@@ -254,7 +254,7 @@ int ems_list_events(int file_no, pthread_mutex_t out_lock)
     write_to_file(file_no, buffer); //TODO: end this part
     current = current->next;
   }
-  pthread_mutex_unlock(&out_lock);
+  pthread_mutex_unlock(out_lock);
 
   return 0;
 }
