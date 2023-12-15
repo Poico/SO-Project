@@ -38,6 +38,7 @@ pthread_mutex_t out_lock;
 unsigned int *waited_threads;
 
 void *thread_main(void *argument);
+void skip_lines(int fd, unsigned int lines);
 
 unsigned int state_access_delay_ms = STATE_ACCESS_DELAY_MS;
 unsigned int max_proc = MAX_PROC, max_thread = MAX_THREADS;
@@ -266,7 +267,7 @@ void *thread_main(void *argument)
 {
   struct thread_info *arg = (struct thread_info *)argument;
   int input_no = open(arg->path, O_RDONLY);
-  // DBG
+  skip_lines(input_no, arg->line);
 
   while (1)
   {
@@ -407,6 +408,9 @@ void handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
     break;
 
   case CMD_BARRIER:
+    pthread_mutex_lock(&my_info->line_lock);
+    my_info->line++;
+    pthread_mutex_unlock(&my_info->line_lock);
     thread_exit(my_info, THREAD_BARRIER);
     break;
 
@@ -422,4 +426,10 @@ void thread_exit(struct thread_info *me, int code)
 {
   me->exit_code = code;
   pthread_exit(&me->exit_code);
+}
+
+void skip_lines(int fd, unsigned int lines)
+{
+  for (unsigned int i = 0; i < lines; i++)
+    cleanup(fd);
 }
