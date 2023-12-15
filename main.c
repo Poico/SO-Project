@@ -276,6 +276,10 @@ void *thread_main(void *argument)
     {
       printf("Thread %d found invalid command at line %d.\n", arg->index, arg->line + 1); // TODO: Remove
     }
+    else if (cmd == CMD_EMPTY)
+    {
+      printf("Thread %d found empty at line %d.\n", arg->index, arg->line + 1);
+    }
     else if (cmd == CMD_WAIT || cmd == CMD_BARRIER)
     {
       // must always be checked for execution
@@ -295,7 +299,7 @@ void *thread_main(void *argument)
         handle_command(cmd, arg, input_no);
         printf("Thread %d Eu vou processar a linha %d.\n", arg->index, arg->line + 1);
       }
-      else if (cmd == CMD_CREATE || cmd == CMD_RESERVE || cmd == CMD_SHOW || cmd == CMD_EMPTY){
+      else if (cmd == CMD_CREATE || cmd == CMD_RESERVE || cmd == CMD_SHOW){
         cleanup(input_no);
       }
     }
@@ -414,7 +418,7 @@ void handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
     break;
 
   case CMD_EMPTY:
-    break;
+    break; // Handled externally
 
   case EOC:
     break; // Handled externally
