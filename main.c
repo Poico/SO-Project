@@ -21,7 +21,7 @@ struct thread_info
   char path[512];
   unsigned int line;
   pthread_mutex_t line_lock;
-
+  int exit_code;
 } *thread_infos;
 
 unsigned int used_threads = 0;
@@ -34,6 +34,7 @@ void handle_file(char *relativePath);
 int handle_command(enum Command cmd, struct thread_info *my_info, int input_no);
 void waited_threadsInitialized();
 void free_waited_threads();
+void thread_exit(struct thread_info *me, int code);
 int out_num;
 pthread_mutex_t out_lock;
 unsigned int *waited_threads;
@@ -241,18 +242,27 @@ void handle_file(char *relativePath)
     pthread_mutex_init(&thread_infos[i].line_lock, NULL);
   }
 
-  for (unsigned int i = 0; i < used_threads; i++)
+  char finished = 0;
+  int *ret_code;
+  while (!finished)
   {
-    if (pthread_create(&thread_infos[i].id, NULL, thread_main, &thread_infos[i]))
+    for (unsigned int i = 0; i < used_threads; i++)
     {
-      fprintf(stderr, "Failed to create thread\n");
-      exit(EXIT_FAILURE);
+      if (pthread_create(&thread_infos[i].id, NULL, thread_main, &thread_infos[i]))
+      {
+        fprintf(stderr, "Failed to create thread\n");
+        exit(EXIT_FAILURE);
+      }
     }
-  }
 
-  for (unsigned int i = 0; i < used_threads; i++)
-  {
-    pthread_join(thread_infos[i].id, NULL);
+    for (unsigned int i = 0; i < used_threads; i++)
+    {
+      pthread_join(thread_infos[i].id, (void**)&ret_code);
+      if (*ret_code == THREAD_FINISHED)
+      {
+        finished = 1;
+      }
+    }
   }
 }
 
@@ -309,6 +319,8 @@ void *thread_main(void *argument)
 
   close(input_no);
   printf("Thread %d finished and closed fd %d.\n", arg->index, input_no);
+  thread_exit(arg, THREAD_FINISHED);
+  //Should not execute
   return NULL;
 }
 
@@ -318,7 +330,7 @@ int handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
   size_t num_rows, num_columns, num_coords;
   size_t xs[MAX_RESERVATION_SIZE], ys[MAX_RESERVATION_SIZE];
 
-  printf("Here\n");
+  printf("%d Handling command %d.\n", my_info->index, (int)cmd);
 
   switch (cmd)
   {
@@ -353,6 +365,7 @@ int handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
     break;
 
   case CMD_LIST_EVENTS:
+    printf("Handling SHOW.\n");
     ems_list_events(out_num, out_lock);
     break;
 
@@ -362,6 +375,8 @@ int handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
       fprintf(stderr, "Invalid command. See HELP for usage\n");
       break;
     }
+
+    printf("Handling SHOW.\n");
     if (ems_show(event_id, out_num, out_lock))
     {
       fprintf(stderr, "Failed to show event\n");
@@ -409,28 +424,7 @@ int handle_command(enum Command cmd, struct thread_info *my_info, int input_no)
     break;
 
   case CMD_BARRIER:
-    char barrier_can_continue = 0;
-    while (!barrier_can_continue)
-    {
-      barrier_can_continue = 1;
-
-      for (unsigned int i = 0; i < used_threads; i++)
-      {
-        if (i == my_info->index)
-          continue;
-        pthread_mutex_lock(&thread_infos[i].line_lock);
-        unsigned int other_line = thread_infos[i].line;
-        pthread_mutex_unlock(&thread_infos[i].line_lock);
-        if (other_line < my_info->line)
-        {
-          barrier_can_continue = 0;
-          break;
-        }
-      }
-      // sleep to prevent spamming mutex locks
-      if (!barrier_can_continue)
-        ems_wait(2);
-    }
+    thread_exit(my_info, THREAD_BARRIER);
     break;
 
   case CMD_EMPTY:
@@ -455,4 +449,10 @@ void waited_threadsInitialized()
 void free_waited_threads()
 {
   free(waited_threads);
+}
+
+void thread_exit(struct thread_info *me, int code)
+{
+  me->exit_code = code;
+  pthread_exit(&me->exit_code);
 }

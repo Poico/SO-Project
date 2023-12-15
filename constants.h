@@ -4,3 +4,5 @@
 #define MAX_THREADS 4
 #define SUCESS 0
 #define FAILURE 1
+#define THREAD_FINISHED 0
+#define THREAD_BARRIER 1
